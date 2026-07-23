@@ -33,8 +33,8 @@
 	@brief Declaration of global string utility functions
  */
 
-#ifndef TimeUtil_h
-#define TimeUtil_h
+#ifndef StringUtil_h
+#define StringUtil_h
 
 #include <string>
 

@@ -34,12 +34,36 @@
  */
 #include "StringUtil.h"
 
+#include <string>
+#include <cwchar>
+#include <clocale>
+#include <cstdlib>
+
 #ifdef _WIN32
-#include <windows.h>
-#else
-#include <locale>
-#include <codecvt>
+#include <locale.h>
 #endif
+
+static void EnsureUtf8LocaleForCurrentThread()
+{
+#ifdef _WIN32
+    static thread_local bool initialized = false;
+
+    if (!initialized)
+    {
+        _configthreadlocale(_ENABLE_PER_THREAD_LOCALE);
+        std::setlocale(LC_CTYPE, ".UTF-8");
+        initialized = true;
+    }
+#else
+    static bool initialized = false;
+
+    if (!initialized)
+    {
+        std::setlocale(LC_CTYPE, "");
+        initialized = true;
+    }
+#endif
+}
 
 /**
  * @brief Convert a std::wstring into an std::string
@@ -48,24 +72,24 @@
  */
 std::string WstringToString(const std::wstring &wstr)
 {
-#ifdef _WIN32
-	std::string res;
-	if(!wstr.empty())
-	{
-		int size_needed = WideCharToMultiByte(CP_UTF8, 0, &wstr[0],(int)wstr.size(), NULL, 0, NULL, NULL);
-		if (size_needed)
-		{
-			res = std::string(size_needed, 0);
-			WideCharToMultiByte (CP_UTF8, 0, &wstr[0],(int)wstr.size(), &res[0], size_needed, NULL, NULL);
-		}
-	}
-	return res;
-#else
-    // Linux / macOS
-    std::wstring ws(wstr);
-    std::wstring_convert<std::codecvt_utf8<wchar_t>> conv;
-    return conv.to_bytes(ws);
-#endif // _WIN32
+    EnsureUtf8LocaleForCurrentThread();
+
+	std::mbstate_t state{};
+	const wchar_t* src = wstr.c_str();
+	std::size_t len = std::wcsrtombs(nullptr, &src, 0, &state);
+
+	if (len == static_cast<std::size_t>(-1))
+	return "Invalid wide-character string or invalid locale";
+
+	std::string result(len, '\0');
+	state = std::mbstate_t{};
+	src = wstr.c_str();
+	std::size_t converted = std::wcsrtombs(result.data(), &src, result.size(), &state);
+
+	if (converted == static_cast<std::size_t>(-1))
+	return "Wstring to string conversion failed";
+
+	return result;
 }
 
 /**
@@ -75,21 +99,22 @@ std::string WstringToString(const std::wstring &wstr)
  */
 std::wstring StringToWstring(const std::string &str)
 {
-#ifdef _WIN32
-	std::wstring res;
-	if( !str.empty())
-	{
-		int size_needed = MultiByteToWideChar(CP_UTF8, 0, &str[0],(int)str.size(), NULL, 0);
-		if (size_needed)
-		{
-			res = std::wstring(size_needed, 0);
-			MultiByteToWideChar(CP_UTF8, 0, &str[0],(int)str.size(), &res[0], size_needed);
-		}
-	}
-	return res;
-#else
-    // Linux / macOS
-    std::wstring_convert<std::codecvt_utf8<wchar_t>> conv;
-    return conv.from_bytes(str);
-#endif // _WIN32
+    EnsureUtf8LocaleForCurrentThread();
+
+    std::mbstate_t state{};
+    const char* src = str.c_str();
+    std::size_t len = std::mbsrtowcs(nullptr, &src, 0, &state);
+
+	if (len == static_cast<std::size_t>(-1))
+        return L"Invalid UTF-8 string or invalid locale";
+
+    std::wstring result(len, L'\0');
+    state = std::mbstate_t{};
+    src = str.c_str();
+    std::size_t converted = std::mbsrtowcs(result.data(), &src, result.size(), &state);
+
+    if (converted == static_cast<std::size_t>(-1))
+        return L"String to wstring conversion failed";
+
+    return result;
 }
